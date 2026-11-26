@@ -6,6 +6,8 @@ Portuguese retail investors, so all funds are UCITS and all results are in EUR.
 
 - Streamlit app: *TODO (not yet deployed)*
 - Moodle group: BT
+- Members: Renke Löschen (82016), Matti Raether (81317), Ben Bormann (78448), Felix Donder (75246),
+  Leopold Querfurth (78371), Clara Liehr (80350)
 
 ## Strategy
 
