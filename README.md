@@ -1,7 +1,8 @@
 # Regional Momentum on the MSCI ACWI
 
-Group assignment for 2270 Financial Modeling. The strategy rebuilds the MSCI ACWI from six regional ETFs
-and tilts the weights towards the regions with the strongest 12-month returns.
+Group assignment for 2270 Financial Modeling. The strategy rebuilds the MSCI ACWI from six regional iShares
+UCITS ETFs and tilts the weights towards the regions with the strongest 12-month returns. It is designed for
+Portuguese retail investors, so all funds are UCITS and all results are in EUR.
 
 - Streamlit app: *TODO (not yet deployed)*
 - Moodle group: BT
@@ -10,15 +11,15 @@ and tilts the weights towards the regions with the strongest 12-month returns.
 
 | | |
 |---|---|
-| Building blocks | SPY (USA), IEV (Europe), EEM (Emerging Markets), EWJ (Japan), EWC (Canada), EPP (Pacific ex Japan) |
-| Benchmark | iShares MSCI ACWI ETF (ACWI) |
-| Base weights | MSCI ACWI region weights from the latest SEC holdings filing public before the rebalancing date, rolled forward with ETF returns |
-| Signal | Total return over the past 12 months (USD) |
+| Building blocks | iShares UCITS ETFs (Acc), Xetra: SXR8 (S&P 500), EUNK (MSCI Europe), EUNM (MSCI EM), SXR5 (MSCI Japan), SXR2 (MSCI Canada), SXR1 (MSCI Pacific ex Japan) |
+| Benchmark | iShares MSCI ACWI UCITS ETF (Acc), Xetra: IUSQ |
+| Base weights | MSCI ACWI region weights from the latest SEC holdings filing of the US-listed iShares MSCI ACWI ETF public before the rebalancing date, rolled forward with ETF returns |
+| Signal | Total return over the past 12 months (EUR) |
 | Tilt | Ranks 1-6: +6 / +4 / +2 / -2 / -4 / -6 percentage points |
 | Limits | Each weight stays within 0.5x-1.5x its MSCI ACWI weight; if a cap binds, the other side is scaled down pro rata |
 | Rebalancing | Semi-annual, last trading day of June and December |
 | Trading costs | 15 bp of traded volume |
-| Sample | 30 June 2008 - 31 October 2026 |
+| Sample | 2 January 2013 - 31 October 2026 |
 
 ## Repository
 
@@ -36,8 +37,9 @@ the notebook and the prospectus.
 
 ## Data sources
 
-- **ETF prices:** Yahoo Finance via `yfinance` (daily, adjusted for dividends and splits, USD)
-- **Risk-free rate:** FRED, 3-month Treasury bill (DTB3)
+- **ETF prices:** Yahoo Finance via `yfinance` (daily Xetra closing prices in EUR, accumulating share classes)
+- **Risk-free rate:** ECB data portal, 3-month Euribor
+- **Spot checks of the region weights:** archived iShares holdings lists from the Internet Archive
 - **MSCI ACWI region weights:** SEC EDGAR filings of the iShares MSCI ACWI ETF (series S000021461): N-Q
   (2008-2018), NPORT-EX (April 2019), NPORT-P (since October 2019)
 

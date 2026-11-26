@@ -4,6 +4,7 @@ import pandas as pd
 import streamlit as st
 
 from regional_momentum.core import (
+    BENCHMARK_NAME,
     REGIONS,
     Params,
     load_acwi_region_weights,
@@ -23,7 +24,7 @@ LAST_DATE = pd.Timestamp.today().normalize() - pd.offsets.MonthEnd(1)
 st.set_page_config(page_title="Regional Momentum on the MSCI ACWI", layout="wide")
 
 
-@st.cache_data(ttl=24 * 3600, show_spinner="Loading prices and T-bill rates ...")
+@st.cache_data(ttl=24 * 3600, show_spinner="Loading prices and interest rates ...")
 def market_data(end):
     # end is part of the cache key, so the data is reloaded once a new month is complete
     return load_prices(DEFAULT.start, end), load_riskfree(DEFAULT.start, end)
@@ -38,8 +39,9 @@ def acwi_weights():
 
 st.title("Regional Momentum on the MSCI ACWI")
 st.caption(
-    "Six regional ETFs at current MSCI ACWI weights, tilted towards the regions with the strongest past returns. "
-    f"Default settings = base case of the prospectus and the notebook; data up to {LAST_DATE:%d %b %Y}."
+    "Six regional iShares UCITS ETFs at current MSCI ACWI weights, tilted towards the regions with the strongest "
+    f"past returns. All values in EUR. Default settings = base case of the prospectus and the notebook; "
+    f"data up to {LAST_DATE:%d %b %Y}."
 )
 
 with st.sidebar:
@@ -68,7 +70,7 @@ prices, rf = market_data(str(LAST_DATE.date()))
 weights = acwi_weights()
 res = run_all(prices, weights, rf, params)
 table, navs = res["table"], res["navs"]
-strat, bench = table.loc["Regional Momentum"], table.loc["MSCI ACWI (ACWI ETF)"]
+strat, bench = table.loc["Regional Momentum"], table.loc[BENCHMARK_NAME]
 
 cols = st.columns(6)
 cols[0].metric("Average return p.a.", f"{strat['Average return p.a.']:.2%}",
@@ -80,7 +82,7 @@ cols[3].metric("Alpha p.a.", f"{strat['Alpha p.a.']:.2%}", f"t = {strat['Alpha t
 cols[4].metric("Beta", f"{strat['Beta']:.2f}")
 cols[5].metric("Information ratio", f"{strat['Information ratio']:.2f}", f"TE {strat['Tracking error p.a.']:.2%}", delta_color="off")
 
-st.subheader("Cumulative performance (start = 1)")
+st.subheader("Cumulative performance in EUR (start = 1)")
 st.line_chart(navs, height=380)
 
 left, right = st.columns(2)
@@ -108,6 +110,7 @@ st.caption(f"{res['strategy'].trades.index[-1]:%d %b %Y}, MSCI ACWI weights from
 st.dataframe(latest.sort_values(f"{lookback}m return", ascending=False).style.format("{:.2%}"), width="stretch")
 
 st.caption(
-    "Data: Yahoo Finance (adjusted ETF prices), FRED DTB3 (risk-free rate), SEC EDGAR holdings of the iShares MSCI "
-    "ACWI ETF (region weights). Past performance is no guarantee of future results."
+    "Data: Yahoo Finance (Xetra prices of the UCITS ETFs in EUR), ECB 3-month Euribor (risk-free rate), "
+    "SEC EDGAR holdings of the US-listed iShares MSCI ACWI ETF (region weights). "
+    "Past performance is no guarantee of future results."
 )

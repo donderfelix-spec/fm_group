@@ -1,6 +1,7 @@
 # %% Imports and settings
-# The six regional ETFs that make up the portfolio, the benchmark, and the default assumptions
-# of the strategy. Changing a value in Params changes the backtest.
+# The six regional UCITS ETFs that make up the portfolio, the benchmark, and the default assumptions
+# of the strategy. All funds are Irish-domiciled iShares UCITS ETFs with accumulating share classes,
+# registered for sale in Portugal. Changing a value in Params changes the backtest.
 import hashlib
 import html
 import re
@@ -15,15 +16,34 @@ import statsmodels.api as sm
 import yfinance as yf
 
 REGIONS = ["USA", "Europe", "Emerging Markets", "Japan", "Canada", "Pacific ex Japan"]
+
+# Yahoo Finance tickers of the Xetra listings (prices in EUR)
 ETF = {
-    "USA": "SPY",
-    "Europe": "IEV",
-    "Emerging Markets": "EEM",
-    "Japan": "EWJ",
-    "Canada": "EWC",
-    "Pacific ex Japan": "EPP",
+    "USA": "SXR8.DE",
+    "Europe": "EUNK.DE",
+    "Emerging Markets": "EUNM.DE",
+    "Japan": "SXR5.DE",
+    "Canada": "SXR2.DE",
+    "Pacific ex Japan": "SXR1.DE",
 }
-BENCHMARK = "ACWI"
+# Benchmark: iShares MSCI ACWI UCITS ETF (Acc), also on Xetra
+BENCHMARK = "IUSQ.DE"
+BENCHMARK_NAME = "MSCI ACWI (iShares UCITS ETF)"
+
+# Fund facts from the iShares product pages (26 Nov 2026): name, ISIN, index, TER, fund launch
+FUND_FACTS = pd.DataFrame(
+    [
+        ["USA", "iShares Core S&P 500 UCITS ETF (Acc)", "IE00B5BMR087", "S&P 500", 0.0007, "2010-05-18"],
+        ["Europe", "iShares Core MSCI Europe UCITS ETF (Acc)", "IE00B4K48X80", "MSCI Europe", 0.0012, "2009-09-25"],
+        ["Emerging Markets", "iShares MSCI EM UCITS ETF (Acc)", "IE00B4L5YC18", "MSCI Emerging Markets", 0.0018, "2009-09-25"],
+        ["Japan", "iShares MSCI Japan UCITS ETF (Acc)", "IE00B53QDK08", "MSCI Japan", 0.0012, "2010-01-11"],
+        ["Canada", "iShares MSCI Canada UCITS ETF (Acc)", "IE00B52SF786", "MSCI Canada", 0.0048, "2010-01-12"],
+        ["Pacific ex Japan", "iShares Core MSCI Pacific ex-Japan UCITS ETF (Acc)", "IE00B52MJY50", "MSCI Pacific ex Japan", 0.0020, "2010-01-11"],
+        ["Benchmark", "iShares MSCI ACWI UCITS ETF (Acc)", "IE00B6R52259", "MSCI ACWI", 0.0020, "2011-10-21"],
+    ],
+    columns=["Region", "Fund", "ISIN", "Index", "TER", "Launch"],
+).set_index("Region")
+FUND_FACTS["Ticker"] = [ETF.get(region, BENCHMARK) for region in FUND_FACTS.index]
 
 # iShares MSCI ACWI ETF on SEC EDGAR. The SEC wants automated downloads to include a contact e-mail.
 SEC_SERIES = "S000021461"
@@ -33,7 +53,7 @@ SEC_FORMS = ["N-Q", "NPORT-EX", "NPORT-P"]
 
 @dataclass
 class Params:
-    start: str = "2008-06-30"
+    start: str = "2013-01-01"
     end: str = "2026-10-31"
     rebalance: str = "S"            # "Q" quarterly, "S" semi-annual (Jun/Dec), "A" annual (Dec)
     lookback_months: int = 12       # momentum = total return over this many months
@@ -43,9 +63,11 @@ class Params:
 
 
 # %% Market data
-# ETF prices come from Yahoo Finance (yfinance), the risk-free rate from FRED.
+# ETF prices come from Yahoo Finance (yfinance). All funds are traded on Xetra in EUR, so the prices already
+# include the exchange-rate effect for a euro investor. The risk-free rate is the 3-month Euribor (European
+# Central Bank).
 def load_prices(start, end):
-    """Daily closing prices of the six ETFs and MSCI ACWI, adjusted for dividends and splits."""
+    """Daily Xetra closing prices in EUR of the six ETFs and the benchmark (accumulating, so total return)."""
     # 13 extra months, so that the first 12-month momentum signal can be calculated
     first_day = pd.Timestamp(start) - pd.DateOffset(months=13)
     last_day = pd.Timestamp(end) + pd.Timedelta(days=1)  # yfinance leaves out the end date itself
@@ -58,22 +80,22 @@ def load_prices(start, end):
 
 
 def load_riskfree(start, end):
-    """Monthly risk-free return from the 3-month T-bill rate (FRED series DTB3)."""
-    url = "https://fred.stlouisfed.org/graph/fredgraph.csv?id=DTB3"
-    data = pd.read_csv(url, index_col=0, parse_dates=True, na_values=".")
-    yearly_rate = data.iloc[:, 0].ffill() / 100
+    """Monthly risk-free return in EUR from the 3-month Euribor (ECB data portal, monthly average)."""
+    url = ("https://data-api.ecb.europa.eu/service/data/FM/M.U2.EUR.RT.MM.EURIBOR3MD_.HSTA"
+           "?format=csvdata&startPeriod=2007-01")
+    data = pd.read_csv(url)
+    yearly_rate = pd.Series(data["OBS_VALUE"].to_numpy() / 100,
+                            index=pd.PeriodIndex(data["TIME_PERIOD"], freq="M").to_timestamp(how="end").normalize())
+    monthly_return = (1 + yearly_rate) ** (1 / 12) - 1
 
-    # rate at the end of each month, turned into a one-month return
-    month_end_rate = yearly_rate.resample("ME").last()
-    monthly_return = (1 + month_end_rate) ** (1 / 12) - 1
-
-    # month m earns the rate that was known at the end of month m-1
+    # month m earns the average rate of month m-1 (known at the start of month m)
     rf = monthly_return.shift(1)
     return rf.loc[start:end].rename("rf")
 
 
 # %% MSCI ACWI region weights from SEC filings
-# The iShares MSCI ACWI ETF reports its holdings to the SEC every quarter. We download these reports,
+# The US-listed iShares MSCI ACWI ETF tracks the same index as our benchmark and reports its holdings to the
+# SEC every quarter, so its reports give the MSCI ACWI region weights over time. We download these reports,
 # add up the weights per country and group the countries into our six regions.
 # Until 2019 the reports are HTML tables by country (forms N-Q and NPORT-EX), since then XML files with
 # every single holding (form NPORT-P).
@@ -438,9 +460,12 @@ def benchmark_nav(prices, params):
 # %% Performance measures
 # All measures use monthly returns. Averages are multiplied by 12, volatilities by the square root
 # of 12. Alpha and beta come from a regression of the monthly excess returns on the excess returns of
-# the MSCI ACWI; alpha is multiplied by 12, beta is not annualised.
+# the MSCI ACWI; alpha is multiplied by 12, beta is not annualised. All values are in EUR.
 def monthly_returns(nav):
     month_end_values = nav.resample("ME").last()
+    # if the sample does not start on a month-end, the first month runs from the start day
+    if nav.index[0] < month_end_values.index[0]:
+        month_end_values = pd.concat([nav.iloc[:1], month_end_values])
     return month_end_values.pct_change().dropna()
 
 
@@ -486,10 +511,10 @@ def run_all(prices, acwi_weights, rf, params):
     navs = pd.DataFrame({
         "Regional Momentum": strategy.nav,
         "Passive replica": passive.nav,
-        "MSCI ACWI (ACWI ETF)": benchmark_nav(prices, params),
+        BENCHMARK_NAME: benchmark_nav(prices, params),
     }).dropna()
     returns = navs.apply(monthly_returns)
-    table = performance_table(returns, "MSCI ACWI (ACWI ETF)", rf)
+    table = performance_table(returns, BENCHMARK_NAME, rf)
 
     years = (navs.index[-1] - navs.index[0]).days / 365.25
     table["Turnover p.a."] = [strategy.trades["turnover"].sum() / years, passive.trades["turnover"].sum() / years, 0.0]
@@ -508,3 +533,42 @@ def sensitivity(prices, acwi_weights, rf, base_params, grid):
             result = run_all(prices, acwi_weights, rf, params)["table"].loc["Regional Momentum"]
             rows.append({"parameter": setting, "value": value, **result[columns].to_dict()})
     return pd.DataFrame(rows).set_index(["parameter", "value"])
+
+
+# %% Risk class (SRI)
+# The summary risk indicator (SRI, scale 1 to 7) of the EU PRIIPs rules, which every key information
+# document for retail investors in Portugal shows. For an equity fund without credit risk the SRI equals
+# the market risk class. It comes from the 97.5% value-at-risk over the recommended holding period,
+# estimated from 5 years of daily returns with the Cornish-Fisher formula (which adds skewness and fat
+# tails to the normal distribution), and turned into a "VaR-equivalent volatility" (VEV).
+VEV_CLASS_LIMITS = [0.005, 0.05, 0.12, 0.20, 0.30, 0.80]  # upper limits of classes 1 to 6
+
+
+def risk_class(nav, end, holding_years=7, history_years=5):
+    """SRI of a daily value series, using the 5 years of history up to `end`."""
+    end = pd.Timestamp(end)
+    values = nav.loc[end - pd.DateOffset(years=history_years):end]
+    log_returns = np.log(values).diff().dropna()
+
+    sigma = log_returns.std()
+    skew = log_returns.skew()
+    excess_kurtosis = log_returns.kurt()  # pandas already subtracts 3
+    n = 256 * holding_years  # trading days in the holding period (PRIIPs uses 256 per year)
+
+    var = (sigma * np.sqrt(n) * (-1.96 + 0.474 * skew / np.sqrt(n) - 0.0687 * excess_kurtosis / n
+                                 + 0.146 * skew ** 2 / n)
+           - 0.5 * sigma ** 2 * n)
+    vev = (np.sqrt(3.842 - 2 * var) - 1.96) / np.sqrt(holding_years)
+
+    sri = 1
+    for limit in VEV_CLASS_LIMITS:
+        if vev >= limit:
+            sri += 1
+    return {
+        "Volatility p.a. (daily, 5y)": sigma * np.sqrt(256),
+        "Skewness": skew,
+        "Excess kurtosis": excess_kurtosis,
+        "VaR 97.5% (holding period)": var,
+        "VaR-equivalent volatility": vev,
+        "SRI (1-7)": sri,
+    }
