@@ -21,10 +21,11 @@ INTRO = """# Regional Momentum on the MSCI ACWI
 
 **2270 Financial Modeling, Group Assignment**
 
-- Moodle group: *TODO*
-- Members: *TODO*
-- Streamlit app: *TODO (URL)*
-- GitHub repository: *TODO (URL)*
+- Moodle group: BT
+- Members: Renke Löschen (82016), Matti Raether (81317), Ben Bormann (78448), Felix Donder (75246),
+  Leopold Querfurth (78371), Clara Liehr (80350)
+- Streamlit app: *TODO (not yet deployed)*
+- GitHub repository: https://github.com/donderfelix-spec/fm_group
 
 ## Setup
 Open this notebook in Google Colab and choose *Runtime > Run all*. No data files are needed: all data are
@@ -33,9 +34,9 @@ mostly for downloading the SEC holdings reports. Missing packages are installed 
 
 ## The strategy in short
 The portfolio rebuilds the MSCI ACWI from six regional ETFs (SPY, IEV, EEM, EWJ, EWC, EPP). On the last
-trading day of June and December it starts from the current ACWI region weights, ranks the regions by
+trading day of June and December it starts from the current MSCI ACWI region weights, ranks the regions by
 their total return over the past 12 months and tilts the weights by +6/+4/+2/-2/-4/-6 percentage points.
-No region may deviate by more than 50% from its ACWI weight; if a limit binds, the other side is scaled
+No region may deviate by more than 50% from its MSCI ACWI weight; if a limit binds, the other side is scaled
 down so that the weights still add up to 100%. Trading costs are 15 bp of the traded volume.
 
 ## Notebook structure
@@ -62,7 +63,7 @@ for package in ["yfinance", "statsmodels"]:
 ANALYSIS = [
     md("""# 2. Parameters and data
 The start and end dates are set explicitly. The start (30 June 2008) is the first rebalancing date on
-which an ACWI holdings report was already public (holdings as of 30 April 2008, published 26 June 2008).
+which an MSCI ACWI holdings report was already public (holdings as of 30 April 2008, published 26 June 2008).
 These are the base-case settings of the prospectus; the app uses the same defaults."""),
     code("""from pathlib import Path
 import json
@@ -88,7 +89,7 @@ PARAMS"""),
 - *ETF prices:* Yahoo Finance via `yfinance`, daily closing prices adjusted for splits and dividends
   (total return in USD). The running ETF costs (TER) are already deducted in these prices.
 - *Risk-free rate:* 3-month US Treasury bill (FRED series DTB3), converted to a monthly return.
-- *ACWI region weights:* quarterly holdings of the iShares MSCI ACWI ETF from SEC EDGAR (form N-Q until
+- *MSCI ACWI region weights:* quarterly holdings of the iShares MSCI ACWI ETF from SEC EDGAR (form N-Q until
   2018, NPORT-EX for April 2019, NPORT-P since October 2019). A report is only used once it was public
   (filing date before the rebalancing date)."""),
     code("""prices = load_prices(PARAMS.start, PARAMS.end)
@@ -97,12 +98,12 @@ acwi_weights = load_acwi_region_weights(SEC_CACHE)
 
 print("Prices:", prices.index[0].date(), "to", prices.index[-1].date(), "-", len(prices), "trading days")
 print("Risk-free rate:", rf.index[0].date(), "to", rf.index[-1].date(), f"- average {rf.mean() * 12:.2%} p.a.")
-print("ACWI reports:", len(acwi_weights), "reporting dates from", acwi_weights.index[0].date(), "to", acwi_weights.index[-1].date())
+print("MSCI ACWI reports:", len(acwi_weights), "reporting dates from", acwi_weights.index[0].date(), "to", acwi_weights.index[-1].date())
 print("Forms:", acwi_weights["form"].value_counts().to_dict())
 
 acwi_weights.to_csv(OUTPUT / "acwi_region_weights.csv")
 acwi_weights[["filed", "form"] + REGIONS].iloc[::4].round(3)"""),
-    md("""### ACWI region weights over time, and how good the roll-forward is
+    md("""### MSCI ACWI region weights over time, and how good the roll-forward is
 Between a reporting date and a rebalancing date we roll the weights forward with the ETF returns. To
 check this, we roll every report forward to the next reporting date (6 months later until 2019, 3 months
 since then) and compare with the weights that were actually reported. The error is the share of the
@@ -128,7 +129,7 @@ plt.show()"""),
     md("""# 3. Backtest and performance measures
 Three portfolios, each starting at 1:
 - **Regional Momentum:** the strategy.
-- **Passive replica:** the same six ETFs at ACWI weights, without tilt. It shows how well the six ETFs
+- **Passive replica:** the same six ETFs at MSCI ACWI weights, without tilt. It shows how well the six ETFs
   replicate the index, so the effect of the momentum signal can be measured on its own.
 - **MSCI ACWI (ACWI ETF):** the benchmark."""),
     code("""result = run_all(prices, acwi_weights, rf, PARAMS)
@@ -184,7 +185,7 @@ for region in REGIONS:
     ax.plot(active_weights.index, active_weights[region], label=region, lw=1)
 ax.axhline(0, color="grey", lw=0.6)
 ax.yaxis.set_major_formatter(mtick.PercentFormatter(1.0))
-ax.set_title("Active weights vs. ACWI region weights")
+ax.set_title("Active weights vs. MSCI ACWI region weights")
 ax.legend(loc="upper left", bbox_to_anchor=(1, 1))
 fig.tight_layout()
 fig.savefig(OUTPUT / "fig_active_weights.png", dpi=200)
@@ -195,15 +196,15 @@ trades.to_csv(OUTPUT / "rebalancing_log.csv")
 last = trades.iloc[-1]
 
 example = pd.DataFrame(index=REGIONS)
-example["ACWI weight"] = [last[f"base {region}"] for region in REGIONS]
+example["MSCI ACWI weight"] = [last[f"base {region}"] for region in REGIONS]
 example["Momentum"] = [last[f"signal {region}"] for region in REGIONS]
 example["Rank"] = example["Momentum"].rank(ascending=False).astype(int)
 example["Target weight"] = [last[f"target {region}"] for region in REGIONS]
-example["Active weight"] = example["Target weight"] - example["ACWI weight"]
+example["Active weight"] = example["Target weight"] - example["MSCI ACWI weight"]
 example = example.sort_values("Rank")
 example.to_csv(OUTPUT / "example_rebalancing.csv")
 
-print("Rebalancing on", trades.index[-1].date(), "- ACWI weights from the report as of", last["anchor"].date(),
+print("Rebalancing on", trades.index[-1].date(), "- MSCI ACWI weights from the report as of", last["anchor"].date(),
       f"- turnover {last['turnover']:.1%}")
 example.round(4)"""),
     md("### Turnover and trading costs per rebalancing date"),
@@ -213,11 +214,11 @@ example.round(4)"""),
 annual = year_end_values.pct_change()
 annual.iloc[0] = year_end_values.iloc[0] / navs.iloc[0] - 1  # 2008 starts on 30 June
 annual.index = annual.index.year
-annual["Active (vs. ACWI)"] = annual["Regional Momentum"] - annual["MSCI ACWI (ACWI ETF)"]
+annual["Active (vs. MSCI ACWI)"] = annual["Regional Momentum"] - annual["MSCI ACWI (ACWI ETF)"]
 annual.to_csv(OUTPUT / "annual_returns.csv")
 
-years_ahead = (annual["Active (vs. ACWI)"] > 0).sum()
-print(f"The strategy beat the ACWI in {years_ahead} of {len(annual)} calendar years")
+years_ahead = (annual["Active (vs. MSCI ACWI)"] > 0).sum()
+print(f"The strategy beat the MSCI ACWI in {years_ahead} of {len(annual)} calendar years")
 annual.round(4)"""),
     md("""# 5. Sensitivity analysis
 Each row changes one assumption of the base case and keeps everything else as it is."""),

@@ -27,7 +27,7 @@ BENCHMARK = "ACWI"
 
 # iShares MSCI ACWI ETF on SEC EDGAR. The SEC wants automated downloads to include a contact e-mail.
 SEC_SERIES = "S000021461"
-SEC_HEADERS = {"User-Agent": "FM-Group-Project research@example.com"}
+SEC_HEADERS = {"User-Agent": "FM-Group-Project 75246@novasbe.pt"}
 SEC_FORMS = ["N-Q", "NPORT-EX", "NPORT-P"]
 
 
@@ -38,14 +38,14 @@ class Params:
     rebalance: str = "S"            # "Q" quarterly, "S" semi-annual (Jun/Dec), "A" annual (Dec)
     lookback_months: int = 12       # momentum = total return over this many months
     tilt_pp: float = 6.0            # active weight of the best region, in percentage points
-    max_rel_deviation: float = 0.5  # 0.5 = each weight stays between 0.5x and 1.5x its ACWI weight
+    max_rel_deviation: float = 0.5  # 0.5 = each weight stays between 0.5x and 1.5x its MSCI ACWI weight
     cost_bps: float = 15.0          # trading costs in basis points of the traded volume
 
 
 # %% Market data
 # ETF prices come from Yahoo Finance (yfinance), the risk-free rate from FRED.
 def load_prices(start, end):
-    """Daily closing prices of the six ETFs and ACWI, adjusted for dividends and splits."""
+    """Daily closing prices of the six ETFs and MSCI ACWI, adjusted for dividends and splits."""
     # 13 extra months, so that the first 12-month momentum signal can be calculated
     first_day = pd.Timestamp(start) - pd.DateOffset(months=13)
     last_day = pd.Timestamp(end) + pd.Timedelta(days=1)  # yfinance leaves out the end date itself
@@ -72,7 +72,7 @@ def load_riskfree(start, end):
     return rf.loc[start:end].rename("rf")
 
 
-# %% ACWI region weights from SEC filings
+# %% MSCI ACWI region weights from SEC filings
 # The iShares MSCI ACWI ETF reports its holdings to the SEC every quarter. We download these reports,
 # add up the weights per country and group the countries into our six regions.
 # Until 2019 the reports are HTML tables by country (forms N-Q and NPORT-EX), since then XML files with
@@ -182,8 +182,8 @@ def weights_from_html(document, report_date):
     text = html.unescape(re.sub(r"<[^>]+>", " ", document))
     text = re.sub(r"\s+", " ", text)
 
-    # One report covers many iShares funds. The ACWI table starts with the fund name, followed by the
-    # column headers and "Common Stocks". The currency-hedged ACWI fund is a different fund.
+    # One report covers many iShares funds. The MSCI ACWI table starts with the fund name, followed by the
+    # column headers and "Common Stocks". The currency-hedged MSCI ACWI fund is a different fund.
     start = None
     for match in re.finditer(r"MSCI ACWI (INDEX FUND|Index Fund|ETF)\b", text):
         before = text[max(0, match.start() - 40): match.start()]
@@ -192,7 +192,7 @@ def weights_from_html(document, report_date):
             start = match.start()
             break
     if start is None:
-        raise ValueError("ACWI table not found in the report")
+        raise ValueError("MSCI ACWI table not found in the report")
     end = start + re.search(r"TOTAL INVESTMENTS|Total Investments", text[start:]).start()
     table = text[start:end]
 
@@ -265,7 +265,7 @@ def list_sec_filings():
 
 
 def load_acwi_region_weights(cache_folder=None, verbose=True):
-    """ACWI region weights for every reporting date, plus the date each report became public."""
+    """MSCI ACWI region weights for every reporting date, plus the date each report became public."""
     filings = list_sec_filings()
     if verbose:
         print(f"Downloading and parsing {len(filings)} SEC filings ...")
@@ -295,7 +295,7 @@ def load_acwi_region_weights(cache_folder=None, verbose=True):
 
 
 # %% Allocation rule
-# On every rebalancing date: (1) take the current ACWI weights, (2) rank the regions by momentum,
+# On every rebalancing date: (1) take the current MSCI ACWI weights, (2) rank the regions by momentum,
 # (3) tilt the weights towards the winners within the limits.
 def region_prices(prices):
     """ETF prices with region names as column names."""
@@ -318,14 +318,14 @@ def rebalancing_dates(trading_days, params):
 
 
 def acwi_weights_on(day, acwi_weights, prices):
-    """ACWI weights on a given day, using only reports that were already public.
+    """MSCI ACWI weights on a given day, using only reports that were already public.
 
     The latest public report is usually about two months old, so its weights are rolled forward
     with the price changes of each region since the reporting date.
     """
     public = acwi_weights[acwi_weights["filed"] < day]
     if public.empty:
-        raise ValueError(f"No ACWI report was public before {day.date()}")
+        raise ValueError(f"No MSCI ACWI report was public before {day.date()}")
     report_date = public.index.max()
 
     weights = public.loc[report_date, REGIONS].astype(float)
@@ -341,10 +341,10 @@ def momentum_on(day, prices, months):
 
 
 def target_weights(acwi, momentum, tilt_pp, max_deviation):
-    """ACWI weights plus active weights by momentum rank.
+    """MSCI ACWI weights plus active weights by momentum rank.
 
     With 6 regions and tilt_pp = 6 the active weights are +6, +4, +2, -2, -4, -6 percentage points.
-    No region may move more than max_deviation times its ACWI weight. If that limit cuts some active
+    No region may move more than max_deviation times its MSCI ACWI weight. If that limit cuts some active
     weights, the other side is scaled down so that over- and underweights still cancel out.
     """
     ranking = momentum.sort_values(ascending=False).index  # best region first
@@ -355,7 +355,7 @@ def target_weights(acwi, momentum, tilt_pp, max_deviation):
     for region, step in zip(ranking, steps):
         active[region] = step / half * tilt_pp / 100
 
-    # limit relative to the ACWI weight
+    # limit relative to the MSCI ACWI weight
     limit = max_deviation * acwi
     active = active.clip(lower=-limit, upper=limit)
 
@@ -438,7 +438,7 @@ def benchmark_nav(prices, params):
 # %% Performance measures
 # All measures use monthly returns. Averages are multiplied by 12, volatilities by the square root
 # of 12. Alpha and beta come from a regression of the monthly excess returns on the excess returns of
-# the ACWI; alpha is multiplied by 12, beta is not annualised.
+# the MSCI ACWI; alpha is multiplied by 12, beta is not annualised.
 def monthly_returns(nav):
     month_end_values = nav.resample("ME").last()
     return month_end_values.pct_change().dropna()
@@ -479,7 +479,7 @@ def performance_table(returns, benchmark, rf):
 
 
 def run_all(prices, acwi_weights, rf, params):
-    """Strategy, passive replica (same ETFs, no tilt) and ACWI, with their performance table."""
+    """Strategy, passive replica (same ETFs, no tilt) and MSCI ACWI, with their performance table."""
     strategy = run_backtest(prices, acwi_weights, params, with_tilt=True)
     passive = run_backtest(prices, acwi_weights, params, with_tilt=False)
 
